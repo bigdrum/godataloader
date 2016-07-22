@@ -1,17 +1,13 @@
 package dataloader
 
-import (
-	"runtime"
-	"sync"
-)
+import "sync"
 
 // DataLoader is very simple threadsafe map for loading duplicate data.
 // It never expires. It is inspired by github.com/facebook/dataloader.
 type DataLoader struct {
-	mu        sync.RWMutex
-	cache     map[interface{}]Value
-	pending   map[interface{}]struct{}
-	scheduled bool
+	mu      sync.RWMutex
+	cache   map[interface{}]Value
+	pending map[interface{}]struct{}
 
 	batchLoader func(keys []interface{}) []Value
 }
@@ -44,8 +40,6 @@ func NewValue(v interface{}, err error) Value {
 }
 
 func (dl *DataLoader) fetchPending() {
-	runtime.Gosched()
-
 	dl.mu.Lock()
 	defer dl.mu.Unlock()
 
