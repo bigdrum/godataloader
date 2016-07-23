@@ -1,6 +1,7 @@
 package dataloader_test
 
 import (
+	"runtime/debug"
 	"testing"
 
 	"github.com/bigdrum/godataloader"
@@ -43,5 +44,15 @@ func TestScheduler(t *testing.T) {
 			}
 			t.Log("5")
 		})
+	})
+}
+
+func TestManySpawn(t *testing.T) {
+	// A test to avoid us doing recursion too much.
+	debug.SetMaxStack(4096)
+	dataloader.RunWithScheduler(func(sch *dataloader.Scheduler) {
+		for i := 0; i < 10000; i++ {
+			sch.Spawn(func() {})
+		}
 	})
 }

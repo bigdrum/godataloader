@@ -2,66 +2,76 @@ package dataloader
 
 import "sync"
 
-// Scheduler provides a custom way to run goroutines with a specific execution order,
-// with two priorities.
-// Use "RunWithScheduler" to start a root goroutine. This goroutinecan spawn new ones with
-// Spaw/SpawnLow with normal/low priorities respectively. All goroutine managed by the
-// schedule must be spawned in this way. RunWithScheduler returns when all spawned goroutines
+// Scheduler provides a custom way to run tasks (arbitrary functions) with a specific
+// execution order, with two priorities.
+// Use "RunWithScheduler" to start a root task. This taskcan spawn new ones with
+// Spaw/SpawnLow with normal/low priorities respectively. All task managed by the
+// schedule must be spawned in this way. RunWithScheduler returns when all spawned tasks
 // finish.
-// At a given time, one and only one single goroutine is active in execution. Initially,
-// the root goroutine is active. The scheduling (switching the active goroutine) happens
-// when the current active goroutine becomes inactive, i.e. it finishes, or blocked by
+// At a given time, one and only one single task is active in execution. Initially,
+// the root task is active. The scheduling (switching the active task) happens
+// when the current active task becomes inactive, i.e. it finishes, or blocked by
 // Notification.Wait Note that the normal blocking in Go, such as waiting for mutex, waitgroup,
 // channel etc doesn't trigger the scheduling here. Waiting for a mutex in a spawned
-// goroutine to be unlocked by another one is likely to cause deadlock, so only use Notification.Wait
+// task to be unlocked by another one is likely to cause deadlock, so only use Notification.Wait
 // to coordinate the execution.
-// The scheduler will not schedule goroutines with low priority until all goroutines with normal
-// priority are inactive. For goroutines with the same priority, they are scheduled in a FILO
+// The scheduler will not schedule tasks with low priority until all tasks with normal
+// priority are inactive. For tasks with the same priority, they are scheduled in a FILO
 // manner (And this is an arbitrary choice since a stack is easier to implement than a queue).
 //
 // This is a very simple scheduler, that provides just enough feature for dataloader, that it
 // collects data request with normal priority, and fetch data in low priority, so as to ensure
 // more requests are collected before making a batched fetch.
 // It would be interesting to extend the scheduler to support features beyond that:
-// * Support "multi-slot", i.e. multiple goroutine can be active at a given time.
-// * Support richer inter goroutine communication feature, such as channel, select, mutex.
+// * Support "multi-slot", i.e. multiple task can be active at a given time.
+// * Support richer inter task communication feature, such as channel, select, mutex.
 // * Support pluggable scheduling algorithm.
 // * Use context.Context to pass around scheduler, opt-in.
 //
-// All functions must be called from the spawned go-routines. It is not thread-safe to
+// All functions must be called from the spawned tasks. It is not thread-safe to
 // call the functions from an "external" goroutine.
+//
+// Does it create new goroutines?
+// Each time when the task is yield (Notification.Wait), a new goroutine is created. Spawn
+// doesn't create new goroutines.
 type Scheduler struct {
 	// They actually act as stacks.
-	normalQ []func()
-	lowQ    []func()
-	done    sync.WaitGroup
+	normalQ []schedulable
+	lowQ    []schedulable
+}
+
+type schedulable struct {
+	action   func()
+	pickNext bool
 }
 
 func RunWithScheduler(f func(sch *Scheduler)) {
 	sch := &Scheduler{}
-	sch.done.Add(1)
 	sch.Spawn(func() {
 		f(sch)
 	})
 	sch.schedule()
-	sch.done.Wait()
 }
 
 func (sch *Scheduler) schedule() {
-	q := &sch.normalQ
-	if len(*q) == 0 {
-		q = &sch.lowQ
+	for {
+		q := &sch.normalQ
 		if len(*q) == 0 {
-			sch.done.Done()
+			q = &sch.lowQ
+			if len(*q) == 0 {
+				return
+			}
+		}
+
+		newlen := len(*q) - 1
+		// FILO.
+		s := (*q)[newlen]
+		*q = (*q)[:newlen]
+		s.action()
+		if !s.pickNext {
 			return
 		}
 	}
-
-	newlen := len(*q) - 1
-	// FILO.
-	f := (*q)[newlen]
-	*q = (*q)[:newlen]
-	go f()
 }
 
 func (sch *Scheduler) Spawn(f func()) {
@@ -72,15 +82,14 @@ func (sch *Scheduler) SpawnLow(f func()) {
 	sch.spawnAt(&sch.lowQ, f)
 }
 
-func (sch *Scheduler) spawnAt(q *[]func(), f func()) {
-	*q = append(*q, func() {
+func (sch *Scheduler) spawnAt(q *[]schedulable, f func()) {
+	*q = append(*q, schedulable{func() {
 		f()
-		sch.schedule()
-	})
+	}, true})
 }
 
 type Notification struct {
-	q   []func()
+	q   []*sync.WaitGroup
 	sch *Scheduler
 }
 
@@ -89,19 +98,18 @@ func NewNotification(sch *Scheduler) *Notification {
 }
 
 func (n *Notification) Notify() {
-	for _, f := range n.q {
-		f()
+	for i := range n.q {
+		wg := n.q[i]
+		n.sch.normalQ = append(n.sch.normalQ, schedulable{func() {
+			wg.Done()
+		}, false})
 	}
 }
 
 func (n *Notification) Wait() {
 	var wg sync.WaitGroup
 	wg.Add(1)
-	n.q = append(n.q, func() {
-		n.sch.normalQ = append(n.sch.normalQ, func() {
-			wg.Done()
-		})
-	})
-	n.sch.schedule()
+	n.q = append(n.q, &wg)
+	go n.sch.schedule()
 	wg.Wait()
 }
