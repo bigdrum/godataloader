@@ -26,6 +26,7 @@ import "sync"
 // * Support "multi-slot", i.e. multiple goroutine can be active at a given time.
 // * Support richer inter goroutine communication feature, such as channel, select, mutex.
 // * Support pluggable scheduling algorithm.
+// * Use context.Context to pass around scheduler, opt-in.
 //
 // All functions must be called from the spawned go-routines. It is not thread-safe to
 // call the functions from an "external" goroutine.
