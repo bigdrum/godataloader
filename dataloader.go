@@ -14,6 +14,7 @@ type DataLoader struct {
 	sch         *Scheduler
 }
 
+// New creates a new dataloader.
 func New(sch *Scheduler, batchLoader func(keys []interface{}) []Value) *DataLoader {
 	return &DataLoader{
 		cache:       make(map[interface{}]Value),
@@ -23,6 +24,7 @@ func New(sch *Scheduler, batchLoader func(keys []interface{}) []Value) *DataLoad
 	}
 }
 
+// NaiveBatch is convenient helper to convert a single fetch to a multi-fetch.
 func NaiveBatch(f func(interface{}) Value) func(keys []interface{}) []Value {
 	return func(keys []interface{}) []Value {
 		values := make([]Value, len(keys))
@@ -33,11 +35,18 @@ func NaiveBatch(f func(interface{}) Value) func(keys []interface{}) []Value {
 	}
 }
 
+// Value wraps the value and error.
 type Value struct {
 	V   interface{}
 	Err error
 }
 
+// Unbox is a helper function to unbox the value.
+func (v Value) Unbox() (interface{}, error) {
+	return v.V, v.Err
+}
+
+// NewValue creates a new value.
 func NewValue(v interface{}, err error) Value {
 	return Value{V: v, Err: err}
 }
@@ -79,12 +88,14 @@ func (dl *DataLoader) fetchPending() {
 	dl.fetchDone = nil
 }
 
+// Load loads a single value.
 func (dl *DataLoader) Load(key interface{}) Value {
 	return dl.LoadMany([]interface{}{
 		key,
 	})[0]
 }
 
+// LoadMany loads multiple values.
 func (dl *DataLoader) LoadMany(keys []interface{}) []Value {
 	values := make([]Value, len(keys))
 	var keysToFetch []interface{}
@@ -134,6 +145,7 @@ func (dl *DataLoader) LoadMany(keys []interface{}) []Value {
 	return values
 }
 
+// Prime put a single value into the cache. No-op if the value already exists.
 func (dl *DataLoader) Prime(key interface{}, v Value) {
 	dl.mu.Lock()
 	defer dl.mu.Unlock()
@@ -144,12 +156,14 @@ func (dl *DataLoader) Prime(key interface{}, v Value) {
 	dl.cache[key] = v
 }
 
+// Clear removes a single value from the cache.
 func (dl *DataLoader) Clear(key interface{}) {
 	dl.mu.Lock()
 	defer dl.mu.Unlock()
 	delete(dl.cache, key)
 }
 
+// ClearAll removes all values from the cache.
 func (dl *DataLoader) ClearAll() {
 	dl.mu.Lock()
 	defer dl.mu.Unlock()

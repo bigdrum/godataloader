@@ -45,6 +45,7 @@ type schedulable struct {
 	pickNext bool
 }
 
+// RunWithScheduler starts a root task and wait for it and its subtasks to finish.
 func RunWithScheduler(f func(sch *Scheduler)) {
 	sch := &Scheduler{}
 	sch.Spawn(func() {
@@ -74,10 +75,12 @@ func (sch *Scheduler) schedule() {
 	}
 }
 
+// Spawn enqueue a task to be executed with normal priority.
 func (sch *Scheduler) Spawn(f func()) {
 	sch.spawnAt(&sch.normalQ, f)
 }
 
+// SpawnLow enqueue a task to be executed with lower than normal priority.
 func (sch *Scheduler) SpawnLow(f func()) {
 	sch.spawnAt(&sch.lowQ, f)
 }
@@ -88,15 +91,18 @@ func (sch *Scheduler) spawnAt(q *[]schedulable, f func()) {
 	}, true})
 }
 
+// Notification provides a way to allow a task to wait for a event to happen.
 type Notification struct {
 	q   []*sync.WaitGroup
 	sch *Scheduler
 }
 
+// NewNotification creates a new notification.
 func NewNotification(sch *Scheduler) *Notification {
 	return &Notification{sch: sch}
 }
 
+// Notify wakes up other tasks that waited for the notification.
 func (n *Notification) Notify() {
 	for i := range n.q {
 		wg := n.q[i]
@@ -106,6 +112,7 @@ func (n *Notification) Notify() {
 	}
 }
 
+// Wait stops the current exeuction of the task, until notification is notified.
 func (n *Notification) Wait() {
 	var wg sync.WaitGroup
 	wg.Add(1)
