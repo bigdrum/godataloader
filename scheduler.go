@@ -4,10 +4,12 @@ import "sync"
 
 // Scheduler provides a custom way to run tasks (arbitrary functions) with a specific
 // execution order, with two priorities.
+//
 // Use "RunWithScheduler" to start a root task. This taskcan spawn new ones with
 // Spaw/SpawnLow with normal/low priorities respectively. All task managed by the
 // schedule must be spawned in this way. RunWithScheduler returns when all spawned tasks
 // finish.
+//
 // At a given time, one and only one single task is active in execution. Initially,
 // the root task is active. The scheduling (switching the active task) happens
 // when the current active task becomes inactive, i.e. it finishes, or blocked by
@@ -15,13 +17,15 @@ import "sync"
 // channel etc doesn't trigger the scheduling here. Waiting for a mutex in a spawned
 // task to be unlocked by another one is likely to cause deadlock, so only use Notification.Wait
 // to coordinate the execution.
+//
 // The scheduler will not schedule tasks with low priority until all tasks with normal
 // priority are inactive. For tasks with the same priority, they are scheduled in a FILO
 // manner (And this is an arbitrary choice since a stack is easier to implement than a queue).
 //
-// This is a very simple scheduler, that provides just enough feature for dataloader, that it
+// This is a very simple scheduler, that provides just enough feature for dataloader: it
 // collects data request with normal priority, and fetch data in low priority, so as to ensure
-// more requests are collected before making a batched fetch.
+// more requests are collected before making the single batched call to remote service.
+//
 // It would be interesting to extend the scheduler to support features beyond that:
 // * Support "multi-slot", i.e. multiple task can be active at a given time.
 // * Support richer inter task communication feature, such as channel, select, mutex.
@@ -32,6 +36,7 @@ import "sync"
 // call the functions from an "external" goroutine.
 //
 // Does it create new goroutines?
+//
 // Each time when the task is yield (Notification.Wait), a new goroutine is created. Spawn
 // doesn't create new goroutines.
 type Scheduler struct {
