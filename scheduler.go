@@ -62,17 +62,16 @@ func (sch *Scheduler) schedule() {
 }
 
 func (sch *Scheduler) Spawn(f func()) {
-	sch.running.Add(1)
-	sch.normalQ = append(sch.normalQ, func() {
-		f()
-		sch.running.Done()
-		sch.schedule()
-	})
+	sch.spawnAt(&sch.normalQ, f)
 }
 
 func (sch *Scheduler) SpawnLow(f func()) {
+	sch.spawnAt(&sch.lowQ, f)
+}
+
+func (sch *Scheduler) spawnAt(q *[]func(), f func()) {
 	sch.running.Add(1)
-	sch.lowQ = append(sch.lowQ, func() {
+	*q = append(*q, func() {
 		f()
 		sch.running.Done()
 		sch.schedule()
