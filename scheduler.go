@@ -34,16 +34,17 @@ type Scheduler struct {
 	// They actually act as stacks.
 	normalQ []func()
 	lowQ    []func()
-	running sync.WaitGroup
+	done    sync.WaitGroup
 }
 
 func RunWithScheduler(f func(sch *Scheduler)) {
 	sch := &Scheduler{}
+	sch.done.Add(1)
 	sch.Spawn(func() {
 		f(sch)
 	})
 	sch.schedule()
-	sch.running.Wait()
+	sch.done.Wait()
 }
 
 func (sch *Scheduler) schedule() {
@@ -51,6 +52,7 @@ func (sch *Scheduler) schedule() {
 	if len(*q) == 0 {
 		q = &sch.lowQ
 		if len(*q) == 0 {
+			sch.done.Done()
 			return
 		}
 	}
@@ -71,10 +73,8 @@ func (sch *Scheduler) SpawnLow(f func()) {
 }
 
 func (sch *Scheduler) spawnAt(q *[]func(), f func()) {
-	sch.running.Add(1)
 	*q = append(*q, func() {
 		f()
-		sch.running.Done()
 		sch.schedule()
 	})
 }
