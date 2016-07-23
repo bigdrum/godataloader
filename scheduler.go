@@ -38,7 +38,9 @@ import "sync"
 // Does it create new goroutines?
 //
 // Each time when the task is yield (Notification.Wait), a new goroutine is created. Spawn
-// doesn't create new goroutines.
+// doesn't create new goroutines. In theory, the new goroutine is not necessary. But
+// we use this approach to limit the stack size (probably not necessary, we should benchmark which
+// way is better.)
 type Scheduler struct {
 	// They actually act as stacks.
 	normalQ []schedulable
@@ -124,4 +126,33 @@ func (n *Notification) Wait() {
 	n.q = append(n.q, &wg)
 	go n.sch.schedule()
 	wg.Wait()
+}
+
+// WaitGroup is like sync.WaitGroup but for scheduler.
+type WaitGroup struct {
+	// No lock is needed since Schduler is currently single threaded.
+	n         *Notification
+	numToWait int
+}
+
+func NewWaitGroup(sch *Scheduler) *WaitGroup {
+	return &WaitGroup{n: NewNotification(sch)}
+}
+
+func (w *WaitGroup) Add(i int) {
+	w.numToWait += i
+}
+
+func (w *WaitGroup) Done() {
+	w.numToWait--
+	if w.numToWait < 0 {
+		panic("negative waitgroup")
+	}
+	if w.numToWait == 0 {
+		w.n.Notify()
+	}
+}
+
+func (w *WaitGroup) Wait() {
+	w.n.Wait()
 }

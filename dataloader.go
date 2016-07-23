@@ -24,8 +24,28 @@ func New(sch *Scheduler, batchLoader func(keys []interface{}) []Value) *DataLoad
 	}
 }
 
-// NaiveBatch is convenient helper to convert a single fetch to a multi-fetch.
-func NaiveBatch(f func(interface{}) Value) func(keys []interface{}) []Value {
+// Parallel is convenient helper to convert a single fetch to a multi-fetch that execute
+// the individual single fetch in parallel.
+func Parallel(f func(interface{}) Value) func(keys []interface{}) []Value {
+	return func(keys []interface{}) []Value {
+		values := make([]Value, len(keys))
+		var wg sync.WaitGroup
+		for i := range keys {
+			wg.Add(1)
+			i := i
+			go func() {
+				defer wg.Done()
+				values[i] = f(keys[i])
+			}()
+		}
+		wg.Wait()
+		return values
+	}
+}
+
+// Serial is convenient helper to convert a single fetch to a multi-fetch that execute
+// the individual single fetch serially.
+func Serial(f func(interface{}) Value) func(keys []interface{}) []Value {
 	return func(keys []interface{}) []Value {
 		values := make([]Value, len(keys))
 		for i, k := range keys {
@@ -52,6 +72,7 @@ func NewValue(v interface{}, err error) Value {
 }
 
 func (dl *DataLoader) scheduleFetch() *Notification {
+	// Must be called with dl.mu locked.
 	if dl.fetchDone != nil {
 		return dl.fetchDone
 	}
