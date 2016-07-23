@@ -2,21 +2,24 @@ package dataloader
 
 import "sync"
 
-// DataLoader is very simple threadsafe map for loading duplicate data.
+// DataLoader is threadsafe map for loading data, and handles batching/dedupping.
 // It never expires. It is inspired by github.com/facebook/dataloader.
 type DataLoader struct {
-	mu      sync.RWMutex
-	cache   map[interface{}]Value
-	pending map[interface{}]struct{}
+	mu        sync.RWMutex
+	cache     map[interface{}]Value
+	pending   map[interface{}]struct{}
+	fetchDone *Notification
 
 	batchLoader func(keys []interface{}) []Value
+	sch         *Scheduler
 }
 
-func New(batchLoader func(keys []interface{}) []Value) *DataLoader {
+func New(sch *Scheduler, batchLoader func(keys []interface{}) []Value) *DataLoader {
 	return &DataLoader{
 		cache:       make(map[interface{}]Value),
 		pending:     make(map[interface{}]struct{}),
 		batchLoader: batchLoader,
+		sch:         sch,
 	}
 }
 
@@ -37,6 +40,19 @@ type Value struct {
 
 func NewValue(v interface{}, err error) Value {
 	return Value{V: v, Err: err}
+}
+
+func (dl *DataLoader) scheduleFetch() *Notification {
+	if dl.fetchDone != nil {
+		return dl.fetchDone
+	}
+	n := NewNotification(dl.sch)
+	dl.fetchDone = n
+	dl.sch.SpawnLow(func() {
+		dl.fetchPending()
+		n.Notify()
+	})
+	return n
 }
 
 func (dl *DataLoader) fetchPending() {
@@ -60,6 +76,7 @@ func (dl *DataLoader) fetchPending() {
 		dl.cache[keys[i]] = v
 	}
 	dl.pending = make(map[interface{}]struct{})
+	dl.fetchDone = nil
 }
 
 func (dl *DataLoader) Load(key interface{}) Value {
@@ -88,6 +105,7 @@ func (dl *DataLoader) LoadMany(keys []interface{}) []Value {
 	}()
 
 	if len(keysToFetch) > 0 {
+		var n *Notification
 		func() {
 			dl.mu.Lock()
 			defer dl.mu.Unlock()
@@ -104,9 +122,10 @@ func (dl *DataLoader) LoadMany(keys []interface{}) []Value {
 				}
 				dl.pending[key] = struct{}{}
 			}
+			n = dl.scheduleFetch()
 		}()
 		if len(keysToFetch) > 0 {
-			dl.fetchPending()
+			n.Wait()
 			for vsi, vi := range keysToFetchIndex {
 				values[vi] = dl.cache[keysToFetch[vsi]]
 			}

@@ -8,39 +8,53 @@ import (
 	"github.com/bigdrum/godataloader"
 )
 
-func newTestLoader() func(key string) string {
-	var mu sync.Mutex
-	counter := 0
+type stat struct {
+	counter int
+}
 
-	dl := dataloader.New(func(keys []interface{}) []dataloader.Value {
+func newTestLoader(sch *dataloader.Scheduler) (func(key string) string, *stat) {
+	var mu sync.Mutex
+	stat := &stat{}
+
+	dl := dataloader.New(sch, func(keys []interface{}) []dataloader.Value {
 		mu.Lock()
 		defer mu.Unlock()
-		counter++
+		stat.counter++
 
 		result := make([]dataloader.Value, 0, len(keys))
 		for _, key := range keys {
-			result = append(result, dataloader.NewValue(fmt.Sprintf("#%d\t%v", counter, key), nil))
+			result = append(result, dataloader.NewValue(fmt.Sprintf("#%d\t%v", stat.counter, key), nil))
 		}
 		return result
 	})
 	return func(key string) string {
 		return dl.Load(key).V.(string)
-	}
+	}, stat
 }
 
-func TestBasic(t *testing.T) {
-	load := newTestLoader()
-	var wg sync.WaitGroup
-	for i := 0; i < 20; i++ {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			v := load(fmt.Sprint("key", "\t", i))
-			fmt.Println(i, v)
-			v = load(fmt.Sprint("key", "\t", v))
-			fmt.Println(i, v)
-		}(i)
+func TestWithScheduler(t *testing.T) {
+	var outstat *stat
+	dataloader.RunWithScheduler(func(sch *dataloader.Scheduler) {
+		var load func(key string) string
+		load, outstat = newTestLoader(sch)
+		for i := 0; i < 20; i++ {
+			i := i
+			sch.Spawn(func() {
+				sch.Spawn(func() {
+					v := load(fmt.Sprint("key", "\t", i))
+					t.Log(i, "spawn", v)
+					v = load(fmt.Sprint("key", "\t", v))
+					t.Log(i, "spawn", v)
+
+				})
+				v := load(fmt.Sprint("key", "\t", i))
+				t.Log(i, v)
+				v = load(fmt.Sprint("key", "\t", v))
+				t.Log(i, v)
+			})
+		}
+	})
+	if outstat.counter != 2 {
+		t.Error("expect load twice, but loaded: ", outstat.counter)
 	}
-	wg.Wait()
-	t.Error(1)
 }
