@@ -154,5 +154,8 @@ func (w *WaitGroup) Done() {
 }
 
 func (w *WaitGroup) Wait() {
+	if w.numToWait == 0 {
+		return
+	}
 	w.n.Wait()
 }
