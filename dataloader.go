@@ -87,7 +87,11 @@ func (dl *DataLoader) scheduleFetch() *Notification {
 
 func (dl *DataLoader) fetchPending() {
 	dl.mu.Lock()
-	defer dl.mu.Unlock()
+	defer func() {
+		dl.pending = make(map[interface{}]struct{})
+		dl.fetchDone = nil
+		dl.mu.Unlock()
+	}()
 
 	keys := make([]interface{}, 0, len(dl.pending))
 	for key := range dl.pending {
@@ -105,8 +109,6 @@ func (dl *DataLoader) fetchPending() {
 	for i, v := range values {
 		dl.cache[keys[i]] = v
 	}
-	dl.pending = make(map[interface{}]struct{})
-	dl.fetchDone = nil
 }
 
 // Load loads a single value.
@@ -137,8 +139,7 @@ func (dl *DataLoader) LoadMany(keys []interface{}) []Value {
 	}()
 
 	if len(keysToFetch) > 0 {
-		var n *Notification
-		func() {
+		n := func() *Notification {
 			dl.mu.Lock()
 			defer dl.mu.Unlock()
 			for i := 0; i < len(keysToFetch); i++ {
@@ -154,7 +155,7 @@ func (dl *DataLoader) LoadMany(keys []interface{}) []Value {
 				}
 				dl.pending[key] = struct{}{}
 			}
-			n = dl.scheduleFetch()
+			return dl.scheduleFetch()
 		}()
 		if len(keysToFetch) > 0 {
 			n.Wait()

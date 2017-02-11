@@ -100,8 +100,9 @@ func (sch *Scheduler) spawnAt(q *[]schedulable, f func()) {
 
 // Notification provides a way to allow a task to wait for a event to happen.
 type Notification struct {
-	q   []*sync.WaitGroup
-	sch *Scheduler
+	q        []*sync.WaitGroup
+	sch      *Scheduler
+	notified bool
 }
 
 // NewNotification creates a new notification.
@@ -111,6 +112,7 @@ func NewNotification(sch *Scheduler) *Notification {
 
 // Notify wakes up other tasks that waited for the notification.
 func (n *Notification) Notify() {
+	n.notified = true
 	for i := range n.q {
 		wg := n.q[i]
 		n.sch.normalQ = append(n.sch.normalQ, schedulable{func() {
@@ -121,6 +123,9 @@ func (n *Notification) Notify() {
 
 // Wait stops the current exeuction of the task, until notification is notified.
 func (n *Notification) Wait() {
+	if n.notified {
+		return
+	}
 	var wg sync.WaitGroup
 	wg.Add(1)
 	n.q = append(n.q, &wg)
