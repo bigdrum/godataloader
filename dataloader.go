@@ -28,6 +28,9 @@ func New(sch *Scheduler, batchLoader func(keys []interface{}) []Value) *DataLoad
 // the individual single fetch in parallel.
 func Parallel(f func(interface{}) Value) func(keys []interface{}) []Value {
 	return func(keys []interface{}) []Value {
+		if len(keys) == 1 {
+			return []Value{f(keys[0])}
+		}
 		values := make([]Value, len(keys))
 		var wg sync.WaitGroup
 		for i := range keys {
