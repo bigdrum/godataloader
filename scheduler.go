@@ -72,7 +72,7 @@ func (sch *Scheduler) schedule() {
 		}
 
 		newlen := len(*q) - 1
-		// FILO.
+		// LIFO.
 		s := (*q)[newlen]
 		*q = (*q)[:newlen]
 		s.action()

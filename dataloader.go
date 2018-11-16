@@ -79,6 +79,12 @@ func (dl *DataLoader) scheduleFetch() *Notification {
 	if dl.fetchDone != nil {
 		return dl.fetchDone
 	}
+	if dl.sch == nil {
+		dl.mu.Unlock()
+		dl.fetchPending()
+		dl.mu.Lock()
+		return nil
+	}
 	n := NewNotification(dl.sch)
 	dl.fetchDone = n
 	dl.sch.SpawnLow(func() {
@@ -161,7 +167,9 @@ func (dl *DataLoader) LoadMany(keys []interface{}) []Value {
 			return dl.scheduleFetch()
 		}()
 		if len(keysToFetch) > 0 {
-			n.Wait()
+			if n != nil {
+				n.Wait()
+			}
 			for vsi, vi := range keysToFetchIndex {
 				values[vi] = dl.cache[keysToFetch[vsi]]
 			}

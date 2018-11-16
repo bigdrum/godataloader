@@ -13,9 +13,10 @@ type stat struct {
 }
 
 type control struct {
-	load  func(key string) string
-	stat  *stat
-	prime func(key, value string)
+	load     func(key string) string
+	loadMany func(keys []string) []string
+	stat     *stat
+	prime    func(key, value string)
 }
 
 func newTestLoader(sch *dataloader.Scheduler) control {
@@ -36,6 +37,18 @@ func newTestLoader(sch *dataloader.Scheduler) control {
 	return control{
 		load: func(key string) string {
 			return dl.Load(key).V.(string)
+		},
+		loadMany: func(keys []string) []string {
+			var ikeys []interface{}
+			for _, k := range keys {
+				ikeys = append(ikeys, k)
+			}
+			vs := dl.LoadMany(ikeys)
+			var ret []string
+			for _, v := range vs {
+				ret = append(ret, v.V.(string))
+			}
+			return ret
 		},
 		stat: stat,
 		prime: func(key, value string) {
@@ -123,4 +136,20 @@ func TestBoundaryCase(t *testing.T) {
 			wg.Wait()
 		})
 	})
+}
+
+func TestNoScheduler(t *testing.T) {
+	dl := newTestLoader(nil)
+	v := dl.load("key1")
+	if v != "#1\tkey1" {
+		t.Error(v)
+	}
+	v = dl.load("key1")
+	if v != "#1\tkey1" {
+		t.Error(v)
+	}
+	vs := fmt.Sprint(dl.loadMany([]string{"key1", "key2", "key3"}))
+	if vs != "[#1\tkey1 #2\tkey2 #2\tkey3]" {
+		t.Error(fmt.Sprintf("%#v", vs))
+	}
 }
