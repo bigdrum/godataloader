@@ -1,6 +1,8 @@
 package dataloader
 
-import "sync"
+import (
+	"sync"
+)
 
 // Scheduler provides a custom way to run tasks (arbitrary functions) with a specific
 // execution order, with two priorities.

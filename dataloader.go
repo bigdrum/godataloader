@@ -1,6 +1,8 @@
 package dataloader
 
-import "sync"
+import (
+	"sync"
+)
 
 // DataLoader is threadsafe map for loading data, and handles batching/dedupping.
 // It never expires. It is inspired by github.com/facebook/dataloader.
@@ -78,6 +80,12 @@ func (dl *DataLoader) scheduleFetch() *Notification {
 	// Must be called with dl.mu locked.
 	if dl.fetchDone != nil {
 		return dl.fetchDone
+	}
+	if dl.sch == nil {
+		dl.mu.Unlock()
+		dl.fetchPending()
+		dl.mu.Lock()
+		return nil
 	}
 	n := NewNotification(dl.sch)
 	dl.fetchDone = n
@@ -179,7 +187,9 @@ func (dl *DataLoader) LoadMany(keys []interface{}) []Value {
 			return dl.scheduleFetch()
 		}()
 		if len(keysToFetch) > 0 {
-			n.Wait()
+			if n != nil {
+				n.Wait()
+			}
 			for vsi, vi := range keysToFetchIndex {
 				values[vi] = dl.cache[mkeysToFetch[vsi]]
 			}
