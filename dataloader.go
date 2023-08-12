@@ -7,7 +7,7 @@ import "sync"
 type DataLoader struct {
 	mu        sync.RWMutex
 	cache     map[interface{}]Value
-	pending   map[interface{}]struct{}
+	pending   map[interface{}]interface{}
 	fetchDone *Notification
 
 	batchLoader func(keys []interface{}) []Value
@@ -18,7 +18,7 @@ type DataLoader struct {
 func New(sch *Scheduler, batchLoader func(keys []interface{}) []Value) *DataLoader {
 	return &DataLoader{
 		cache:       make(map[interface{}]Value),
-		pending:     make(map[interface{}]struct{}),
+		pending:     make(map[interface{}]interface{}),
 		batchLoader: batchLoader,
 		sch:         sch,
 	}
@@ -79,12 +79,6 @@ func (dl *DataLoader) scheduleFetch() *Notification {
 	if dl.fetchDone != nil {
 		return dl.fetchDone
 	}
-	if dl.sch == nil {
-		dl.mu.Unlock()
-		dl.fetchPending()
-		dl.mu.Lock()
-		return nil
-	}
 	n := NewNotification(dl.sch)
 	dl.fetchDone = n
 	dl.sch.SpawnLow(func() {
@@ -97,16 +91,19 @@ func (dl *DataLoader) scheduleFetch() *Notification {
 func (dl *DataLoader) fetchPending() {
 	dl.mu.Lock()
 	defer func() {
-		dl.pending = make(map[interface{}]struct{})
+		dl.pending = make(map[interface{}]interface{})
 		dl.fetchDone = nil
 		dl.mu.Unlock()
 	}()
 
 	keys := make([]interface{}, 0, len(dl.pending))
-	for key := range dl.pending {
-		if _, ok := dl.cache[key]; ok {
+	mkeys := make([]interface{}, 0, len(dl.pending))
+
+	for mkey, key := range dl.pending {
+		if _, ok := dl.cache[mkey]; ok {
 			continue
 		}
+		mkeys = append(mkeys, mkey)
 		keys = append(keys, key)
 	}
 	if len(keys) == 0 {
@@ -116,7 +113,7 @@ func (dl *DataLoader) fetchPending() {
 	// TODO: The locking can be optimized here.
 	values := dl.batchLoader(keys)
 	for i, v := range values {
-		dl.cache[keys[i]] = v
+		dl.cache[mkeys[i]] = v
 	}
 }
 
@@ -127,22 +124,36 @@ func (dl *DataLoader) Load(key interface{}) Value {
 	})[0]
 }
 
+type MapKeyer interface {
+	MapKey() interface{}
+}
+
+func getMapKey(key interface{}) interface{} {
+	if v, ok := key.(MapKeyer); ok {
+		return v.MapKey()
+	}
+	return key
+}
+
 // LoadMany loads multiple values.
 func (dl *DataLoader) LoadMany(keys []interface{}) []Value {
 	values := make([]Value, len(keys))
 	var keysToFetch []interface{}
+	var mkeysToFetch []interface{}
 	var keysToFetchIndex []int
 
 	func() {
 		dl.mu.RLock()
 		defer dl.mu.RUnlock()
 		for i, key := range keys {
-			v, ok := dl.cache[key]
+			mkey := getMapKey(key)
+			v, ok := dl.cache[mkey]
 			if ok {
 				values[i] = v
 				continue
 			}
 			keysToFetch = append(keysToFetch, key)
+			mkeysToFetch = append(mkeysToFetch, mkey)
 			keysToFetchIndex = append(keysToFetchIndex, i)
 		}
 	}()
@@ -153,7 +164,8 @@ func (dl *DataLoader) LoadMany(keys []interface{}) []Value {
 			defer dl.mu.Unlock()
 			for i := 0; i < len(keysToFetch); i++ {
 				key := keysToFetch[i]
-				v, ok := dl.cache[key]
+				mkey := mkeysToFetch[i]
+				v, ok := dl.cache[mkey]
 				if ok {
 					values[keysToFetchIndex[i]] = v
 					keysToFetch[i] = keysToFetch[len(keysToFetch)-1]
@@ -162,16 +174,14 @@ func (dl *DataLoader) LoadMany(keys []interface{}) []Value {
 					keysToFetchIndex = keysToFetchIndex[:len(keysToFetchIndex)-1]
 					continue
 				}
-				dl.pending[key] = struct{}{}
+				dl.pending[mkey] = key
 			}
 			return dl.scheduleFetch()
 		}()
 		if len(keysToFetch) > 0 {
-			if n != nil {
-				n.Wait()
-			}
+			n.Wait()
 			for vsi, vi := range keysToFetchIndex {
-				values[vi] = dl.cache[keysToFetch[vsi]]
+				values[vi] = dl.cache[mkeysToFetch[vsi]]
 			}
 		}
 	}
